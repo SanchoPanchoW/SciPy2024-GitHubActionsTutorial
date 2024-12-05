@@ -1,4 +1,3 @@
-# Process a single image pair
 name: image_correlation_pair
 run-name: ${{ inputs.workflow_name }}
 
@@ -6,66 +5,76 @@ run-name: ${{ inputs.workflow_name }}
 on:
   workflow_dispatch:
     inputs:
-        img1_product_name:
-            type: string
-            required: true
-            description: S2 image 1 product name
-            default: S2A_MSIL2A_20210907T131721_N0500_R124_T33XVH_20230109T221247.SAFE
-        img2_product_name:
-            type: string
-            required: true
-            description: S2 image 2 product name 
-            default: S2B_MSIL2A_20220826T123659_N0400_R095_T33XVH_20220826T151137.SAFE
-        workflow_name:
-            description: 'Custom workflow name'
-            required: false
-            default: 'autoRIFT'
-            type: string
+      img1_product_name:
+        type: string
+        required: true
+        description: S2 image 1 product name
+        default: S2A_MSIL2A_20210907T131721_N0500_R124_T33XVH_20230109T221247.SAFE
+      img2_product_name:
+        type: string
+        required: true
+        description: S2 image 2 product name 
+        default: S2B_MSIL2A_20220826T123659_N0400_R095_T33XVH_20220826T151137.SAFE
+      workflow_name:
+        description: 'Custom workflow name'
+        required: false
+        default: 'autoRIFT'
+        type: string
 
   # Must duplicate inputs for workflow_call (https://github.com/orgs/community/discussions/39357)
   workflow_call:
     inputs:
-        img1_product_name:
-            type: string
-            description: S2 image 1 product name 
-        img2_product_name:
-            type: string
-            description: S2 image 2 product name 
-        workflow_name:
-            description: 'Custom workflow name'
-            type: string
+      img1_product_name:
+        type: string
+        description: S2 image 1 product name 
+      img2_product_name:
+        type: string
+        description: S2 image 2 product name 
+      workflow_name:
+        description: 'Custom workflow name'
+        type: string
 
 jobs:
-    autoRIFT:
-        name: ${{ inputs.workflow_name }}
-        runs-on: ubuntu-latest
-        defaults:
-            run:
-                shell: bash -el {0}
+  autoRIFT:
+    name: ${{ inputs.workflow_name }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
 
-        steps:
-            - name: Checkout Repository
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-            - name: Install Conda environment with Micromamba
-              uses: mamba-org/setup-micromamba@v1
-              with:
-                cache-environment: true
-                environment-file: glacier_image_correlation/environment.yml
+      - name: Install Conda environment with Micromamba
+        uses: mamba-org/setup-micromamba@v1
+        with:
+          cache-environment: true
+          environment-file: glacier_image_correlation/environment.yml
 
-            - name: Modify autoRIFT Package
-            # current release has deprecated numpy functions https://github.com/nasa-jpl/autoRIFT/issues/97
-              run: |
-                git clone https://github.com/gbrencher/autoRIFT.git
-                cp -f autoRIFT/geo_autoRIFT/autoRIFT/autoRIFT.py /home/runner/micromamba/envs/image-correlation/lib/python3.12/site-packages/autoRIFT/
-                
-            - name: Download Data and Run autoRIFT Software
-              run: |
-                python glacier_image_correlation/image_correlation.py ${{ inputs.img1_product_name }} ${{ inputs.img2_product_name }}
+      - name: Modify autoRIFT Package
+        # current release has deprecated numpy functions https://github.com/nasa-jpl/autoRIFT/issues/97
+        run: |
+          git clone https://github.com/gbrencher/autoRIFT.git
+          cp -f autoRIFT/geo_autoRIFT/autoRIFT/autoRIFT.py /home/runner/micromamba/envs/image-correlation/lib/python3.12/site-packages/autoRIFT/
+          
+      - name: Download Data and Run autoRIFT Software
+        run: |
+          echo "Processing images with autoRIFT..."
+          python glacier_image_correlation/image_correlation.py ${{ inputs.img1_product_name }} ${{ inputs.img2_product_name }}
 
-            - name: Upload Velocity Map as Artifact
-              uses: actions/upload-artifact@v4
-              with:
-                name: ${{ inputs.workflow_name }}
-                path: |
-                    S2*horizontal_velocity.tif
+      - name: Upload Velocity Map as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.workflow_name }}
+          path: |
+            S2*horizontal_velocity.tif  # Adjust pattern to match actual output files
+          
+      - name: Verify Velocity Map Files
+        run: |
+          echo "Checking for output files..."
+          ls -l *horizontal_velocity.tif
+          if [ ! -f *horizontal_velocity.tif ]; then
+            echo "No velocity map files found. Check previous steps."
+            exit 1
+          fi
