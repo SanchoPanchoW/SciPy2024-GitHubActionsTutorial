@@ -21,37 +21,22 @@ def main():
     parser = get_parser()
     args = parser.parse_args()
     
-    # hardcode bbox for now
+    # Hardcode bbox for now
     bbox = {
         "type": "Polygon",
         "coordinates": [
             [
-                [
-                    10.198292271012686,
-                    79.23227770990904
-                ],
-                [
-                    15.464675619320452,
-                    79.26885330086729
-                ],
-                [
-                    15.428707625142932,
-                    78.38064855468043
-                ],
-                [
-                    14.67046173123066,
-                    78.28521422287416
-                ],
-                [
-                    10.594859642093214,
-                    78.2516476022497
-                ],
-                [
-                    10.198292271012686,
-                    79.23227770990904]]]
+                [10.198292271012686, 79.23227770990904],
+                [15.464675619320452, 79.26885330086729],
+                [15.428707625142932, 78.38064855468043],
+                [14.67046173123066, 78.28521422287416],
+                [10.594859642093214, 78.2516476022497],
+                [10.198292271012686, 79.23227770990904]
+            ]
+        ]
     }
     
-    # Use the api from element84 to query the data
+    # Use the API from Element84 to query the data
     URL = "https://earth-search.aws.element84.com/v1"
     catalog = pystac_client.Client.open(URL)
     
@@ -65,12 +50,25 @@ def main():
     items = search.item_collection()
     print(f"Returned {len(items)} Items")
     
-    # create xarray dataset without loading data
-    sentinel2_stack = stackstac.stack(items)
-    # filter to specified month range
-    sentinel2_stack_snowoff = sentinel2_stack.where((sentinel2_stack.time.dt.month >= int(args.start_month)) & (sentinel2_stack.time.dt.month <= int(args.stop_month)), drop=True)
+    # Create xarray dataset without loading data
+    # Specify a common CRS (e.g., EPSG:32633)
+    try:
+        sentinel2_stack = stackstac.stack(items, epsg=32633)
+    except ValueError as e:
+        print(f"Error during stacking: {e}")
+        # Debugging CRS conflicts
+        crs_set = {asset["proj:epsg"] for item in items for asset in item.assets.values()}
+        print(f"CRSs in assets: {crs_set}")
+        return
+
+    # Filter to specified month range
+    sentinel2_stack_snowoff = sentinel2_stack.where(
+        (sentinel2_stack.time.dt.month >= int(args.start_month)) & 
+        (sentinel2_stack.time.dt.month <= int(args.stop_month)), 
+        drop=True
+    )
     
-    # select first image of each month
+    # Select the first image of each month
     period_index = pd.PeriodIndex(sentinel2_stack_snowoff['time'].values, freq='M')
     sentinel2_stack_snowoff.coords['year_month'] = ('time', period_index)
     first_image_indices = sentinel2_stack_snowoff.groupby('year_month').apply(lambda x: x.isel(time=0))
@@ -81,17 +79,20 @@ def main():
     # Create Matrix Job Mapping (JSON Array)
     pairs = []
     for r in range(len(product_names) - int(args.npairs)):
-        for s in range(1, int(args.npairs) + 1 ):
+        for s in range(1, int(args.npairs) + 1):
             img1_product_name = product_names[r]
-            img2_product_name = product_names[r+s]
+            img2_product_name = product_names[r + s]
             shortname = f'{img1_product_name[11:19]}_{img2_product_name[11:19]}'
-            pairs.append({'img1_product_name': img1_product_name, 'img2_product_name': img2_product_name, 'name':shortname})
-    matrixJSON = f'{{"include":{json.dumps(pairs)}}}'
-    print(f'number of image pairs: {len(pairs)}')
+            pairs.append({'img1_product_name': img1_product_name, 'img2_product_name': img2_product_name, 'name': shortname})
     
-    with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+    matrixJSON = f'{{"include":{json.dumps(pairs)}}}'
+    print(f'Number of image pairs: {len(pairs)}')
+    
+    # Output the results to the environment's GitHub output file
+    github_output = os.environ.get('GITHUB_OUTPUT', 'output.txt')
+    with open(github_output, 'a') as f:
         print(f'IMAGE_DATES={product_names}', file=f)
         print(f'MATRIX_PARAMS_COMBINATIONS={matrixJSON}', file=f)
 
 if __name__ == "__main__":
-   main()
+    main()
