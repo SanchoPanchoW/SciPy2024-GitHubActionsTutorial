@@ -10,10 +10,9 @@ from scipy.interpolate import interpn
 import pystac
 import pystac_client
 import stackstac
-from dask.distributed import Client
+import dask
 import geopandas as gpd
 from shapely.geometry import shape
-import dask
 import warnings
 import argparse
 
@@ -25,7 +24,7 @@ def download_s2(img1_product_name, img2_product_name, bbox):
     '''
     Download a pair of Sentinel-2 images acquired on given dates over a given bounding box
     '''
-    # We use the api from element84 to query the data
+    # We use the API from Element84 to query the data
     URL = "https://earth-search.aws.element84.com/v1"
     catalog = pystac_client.Client.open(URL)
 
@@ -46,8 +45,8 @@ def download_s2(img1_product_name, img2_product_name, bbox):
 
     aoi = gpd.GeoDataFrame({'geometry':[shape(bbox)]})
     # crop images to aoi
-    img1_clipped = img1_full.rio.clip_box(*aoi.total_bounds,crs=4326) 
-    img2_clipped = img2_full.rio.clip_box(*aoi.total_bounds,crs=4326)
+    img1_clipped = img1_full.rio.clip_box(*aoi.total_bounds, crs=4326) 
+    img2_clipped = img2_full.rio.clip_box(*aoi.total_bounds, crs=4326)
     
     img1_ds = img1_clipped.to_dataset(dim='band')
     img2_ds = img2_clipped.to_dataset(dim='band')
@@ -79,14 +78,14 @@ def run_autoRIFT(img1, img2, skip_x=3, skip_y=3, min_x_chip=16, max_x_chip=64,
     yGrid = np.arange(obj.SkipSampleY, m - obj.SkipSampleY, obj.SkipSampleY)
 
     # Clip indices to ensure they are within valid bounds
-    xGrid_clipped = np.clip(xGrid - 1, 0, n - 1)  # Clip indices to stay within bounds
-    yGrid_clipped = np.clip(yGrid - 1, 0, m - 1)  # Clip indices to stay within bounds
+    xGrid_clipped = np.clip(xGrid, 0, n - 1)  # Ensure xGrid stays within bounds
+    yGrid_clipped = np.clip(yGrid, 0, m - 1)  # Ensure yGrid stays within bounds
 
     # Create 2D grids for x and y
-    nd = len(xGrid)
-    md = len(yGrid)
-    obj.xGrid = np.int32(np.dot(np.ones((md, 1)), np.reshape(xGrid, (1, nd))))
-    obj.yGrid = np.int32(np.dot(np.reshape(yGrid, (md, 1)), np.ones((1, nd))))
+    nd = len(xGrid_clipped)
+    md = len(yGrid_clipped)
+    obj.xGrid = np.int32(np.dot(np.ones((md, 1)), np.reshape(xGrid_clipped, (1, nd))))
+    obj.yGrid = np.int32(np.dot(np.reshape(yGrid_clipped, (md, 1)), np.ones((1, nd))))
 
     # Create no-data mask
     noDataMask = np.invert(
@@ -200,15 +199,4 @@ def main():
     # Scale search limit with temporal baseline assuming max velocity 1000 m/yr (100 px/yr)
     search_limit_x = search_limit_y = round(((((img2_ds.time.isel(time=0) - img1_ds.time.isel(time=0)).dt.days)*100)/365.25).item())
     
-    # Run autoRIFT feature tracking
-    obj = run_autoRIFT(img1, img2, search_limit_x=search_limit_x, search_limit_y=search_limit_y)
-    # Postprocess offsets
-    ds = prep_outputs(obj, img1_ds, img2_ds)
-    
-    # Save results
-    output_file = f"output_{args.img1_product_name}_{args.img2_product_name}.nc"
-    ds.to_netcdf(output_file)
-    print(f"Results saved to {output_file}")
-
-if __name__ == "__main__":
-    main()
+    # Run autoR
