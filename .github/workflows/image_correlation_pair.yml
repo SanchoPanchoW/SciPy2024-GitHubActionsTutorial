@@ -65,7 +65,7 @@ jobs:
       - name: Check Generated Files
         run: |
           echo "Checking for generated files..."
-          ls -l /path/to/your/output/directory  # Adjust this path to where the output files are generated
+          ls -l C:/DARBS  # Adjust this path to where the output files are generated
 
       - name: Upload Velocity Map as Artifact
         uses: actions/upload-artifact@v4
