@@ -57,24 +57,19 @@ jobs:
         run: |
           git clone https://github.com/gbrencher/autoRIFT.git
           cp -f autoRIFT/geo_autoRIFT/autoRIFT/autoRIFT.py /home/runner/micromamba/envs/image-correlation/lib/python3.12/site-packages/autoRIFT/
-          
+
       - name: Download Data and Run autoRIFT Software
         run: |
-          echo "Processing images with autoRIFT..."
           python glacier_image_correlation/image_correlation.py ${{ inputs.img1_product_name }} ${{ inputs.img2_product_name }}
+
+      - name: Check Generated Files
+        run: |
+          echo "Checking for generated files..."
+          ls -l /path/to/your/output/directory  # Adjust this path to where the output files are generated
 
       - name: Upload Velocity Map as Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.workflow_name }}
           path: |
-            S2*horizontal_velocity.tif  # Adjust pattern to match actual output files
-          
-      - name: Verify Velocity Map Files
-        run: |
-          echo "Checking for output files..."
-          ls -l *horizontal_velocity.tif
-          if [ ! -f *horizontal_velocity.tif ]; then
-            echo "No velocity map files found. Check previous steps."
-            exit 1
-          fi
+            /path/to/your/output/directory/*horizontal_velocity*.tif  # Adjust this to match the generated files
