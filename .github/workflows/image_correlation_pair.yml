@@ -72,4 +72,4 @@ jobs:
         with:
           name: ${{ inputs.workflow_name }}
           path: |
-            /path/to/your/output/directory/*horizontal_velocity*.tif  # Adjust this to match the generated files
+            C:/DARBS/*horizontal_velocity*.tif  # Adjust this to match the generated files
