@@ -23,33 +23,36 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 def download_s2(img1_product_name, img2_product_name, bbox):
     '''
-    Download a pair of Sentinel-2 images acquired on given dates over a given bounding box.
+    Download a pair of Sentinel-2 images acquired on given dates over a given bounding box
     '''
+    # We use the api from element84 to query the data
     URL = "https://earth-search.aws.element84.com/v1"
     catalog = pystac_client.Client.open(URL)
 
     search = catalog.search(
-        collections=["sentinel-2-l2a"],
-        query=[f's2:product_uri={img1_product_name}']
-    )
+    collections=["sentinel-2-l2a"],
+    query=[f's2:product_uri={img1_product_name}'])
+    
     img1_items = search.item_collection()
     img1_full = stackstac.stack(img1_items)
 
     search = catalog.search(
-        collections=["sentinel-2-l2a"],
-        query=[f's2:product_uri={img2_product_name}']
-    )
+    collections=["sentinel-2-l2a"],
+    query=[f's2:product_uri={img2_product_name}'])
+
+    # Check how many items were returned
     img2_items = search.item_collection()
     img2_full = stackstac.stack(img2_items)
 
-    aoi = gpd.GeoDataFrame({'geometry': [shape(bbox)]})
-    img1_clipped = img1_full.rio.clip_box(*aoi.total_bounds, crs=4326)
-    img2_clipped = img2_full.rio.clip_box(*aoi.total_bounds, crs=4326)
-
+    aoi = gpd.GeoDataFrame({'geometry':[shape(bbox)]})
+    # crop images to aoi
+    img1_clipped = img1_full.rio.clip_box(*aoi.total_bounds,crs=4326) 
+    img2_clipped = img2_full.rio.clip_box(*aoi.total_bounds,crs=4326)
+    
     img1_ds = img1_clipped.to_dataset(dim='band')
     img2_ds = img2_clipped.to_dataset(dim='band')
 
-    return img1_ds, img2_ds
+    return img1_ds, img2_ds 
 
 def run_autoRIFT(img1, img2, skip_x=3, skip_y=3, min_x_chip=16, max_x_chip=64,
                  preproc_filter_width=3, mpflag=4, search_limit_x=30, search_limit_y=30):
@@ -76,8 +79,8 @@ def run_autoRIFT(img1, img2, skip_x=3, skip_y=3, min_x_chip=16, max_x_chip=64,
     yGrid = np.arange(obj.SkipSampleY, m - obj.SkipSampleY, obj.SkipSampleY)
 
     # Clip indices to ensure they are within valid bounds
-    xGrid_clipped = np.clip(xGrid - 1, 0, n - 1)
-    yGrid_clipped = np.clip(yGrid - 1, 0, m - 1)
+    xGrid_clipped = np.clip(xGrid - 1, 0, n - 1)  # Clip indices to stay within bounds
+    yGrid_clipped = np.clip(yGrid - 1, 0, m - 1)  # Clip indices to stay within bounds
 
     # Create 2D grids for x and y
     nd = len(xGrid)
@@ -117,29 +120,35 @@ def run_autoRIFT(img1, img2, skip_x=3, skip_y=3, min_x_chip=16, max_x_chip=64,
 
 def prep_outputs(obj, img1_ds, img2_ds):
     '''
-    Interpolate pixel offsets to original dimensions and calculate total horizontal velocity.
+    Interpolate pixel offsets to original dimensions, calculate total horizontal velocity
     '''
+    # Interpolate to original dimensions 
     x_coords = obj.xGrid[0, :]
     y_coords = obj.yGrid[:, 0]
-
+    
+    # Create a mesh grid for the img dimensions
     x_coords_new, y_coords_new = np.meshgrid(
         np.arange(obj.I2.shape[1]),
         np.arange(obj.I2.shape[0])
     )
-
+    
+    # Perform bilinear interpolation using scipy.interpolate.interpn
     Dx_full = interpn((y_coords, x_coords), obj.Dx, (y_coords_new, x_coords_new), method="linear", bounds_error=False)
     Dy_full = interpn((y_coords, x_coords), obj.Dy, (y_coords_new, x_coords_new), method="linear", bounds_error=False)
     Dx_m_full = interpn((y_coords, x_coords), obj.Dx_m, (y_coords_new, x_coords_new), method="linear", bounds_error=False)
     Dy_m_full = interpn((y_coords, x_coords), obj.Dy_m, (y_coords_new, x_coords_new), method="linear", bounds_error=False)
-
-    img1_ds = img1_ds.assign({'Dx': (['y', 'x'], Dx_full),
-                              'Dy': (['y', 'x'], Dy_full),
-                              'Dx_m': (['y', 'x'], Dx_m_full),
-                              'Dy_m': (['y', 'x'], Dy_m_full)})
-
-    img1_ds['veloc_x'] = (img1_ds.Dx_m / (img2_ds.time.isel(time=0) - img1_ds.time.isel(time=0)).dt.days) * 365.25
-    img1_ds['veloc_y'] = (img1_ds.Dy_m / (img2_ds.time.isel(time=0) - img1_ds.time.isel(time=0)).dt.days) * 365.25
-    img1_ds['veloc_horizontal'] = np.sqrt(img1_ds['veloc_x'] ** 2 + img1_ds['veloc_y'] ** 2)
+    
+    # Add variables to img1 dataset
+    img1_ds = img1_ds.assign({'Dx':(['y', 'x'], Dx_full),
+                              'Dy':(['y', 'x'], Dy_full),
+                              'Dx_m':(['y', 'x'], Dx_m_full),
+                              'Dy_m':(['y', 'x'], Dy_m_full)})
+    # Calculate x and y velocity
+    img1_ds['veloc_x'] = (img1_ds.Dx_m/(img2_ds.time.isel(time=0) - img1_ds.time.isel(time=0)).dt.days)*365.25
+    img1_ds['veloc_y'] = (img1_ds.Dy_m/(img2_ds.time.isel(time=0) - img1_ds.time.isel(time=0)).dt.days)*365.25
+    
+    # Calculate total horizontal velocity
+    img1_ds['veloc_horizontal'] = np.sqrt(img1_ds['veloc_x']**2 + img1_ds['veloc_y']**2)
 
     return img1_ds
 
@@ -153,28 +162,53 @@ def main():
     parser = get_parser()
     args = parser.parse_args()
 
+    # Hardcoding a bounding box for now
     bbox = {
-        "type": "Polygon",
-        "coordinates": [
+    "type": "Polygon",
+    "coordinates": [
             [
-                [11.386104222980578, 78.80418486060194],
-                [11.386104222980578, 78.57706771985502],
-                [13.269392947720405, 78.57706771985502],
-                [13.269392947720405, 78.80418486060194],
-                [11.386104222980578, 78.80418486060194]
-            ]
+                [
+                    11.386104222980578,
+                    78.80418486060194
+                ],
+                [
+                    11.386104222980578,
+                    78.57706771985502
+                ],
+                [
+                    13.269392947720405,
+                    78.57706771985502
+                ],
+                [
+                    13.269392947720405,
+                    78.80418486060194
+                ],
+                [
+                    11.386104222980578,
+                    78.80418486060194
+                ]
+          ]
         ],
     }
 
+    # Download Sentinel-2 images
     img1_ds, img2_ds = download_s2(args.img1_product_name, args.img2_product_name, bbox)
+    # Grab near infrared band only
     img1 = img1_ds.nir.squeeze().values
     img2 = img2_ds.nir.squeeze().values
-
-    search_limit_x = search_limit_y = round(((((img2_ds.time.isel(time=0) - img1_ds.time.isel(time=0)).dt.days) * 100) / 365.25).item())
+    
+    # Scale search limit with temporal baseline assuming max velocity 1000 m/yr (100 px/yr)
+    search_limit_x = search_limit_y = round(((((img2_ds.time.isel(time=0) - img1_ds.time.isel(time=0)).dt.days)*100)/365.25).item())
+    
+    # Run autoRIFT feature tracking
     obj = run_autoRIFT(img1, img2, search_limit_x=search_limit_x, search_limit_y=search_limit_y)
+    # Postprocess offsets
     ds = prep_outputs(obj, img1_ds, img2_ds)
-
-    ds.veloc_horizontal.rio.to_raster(f'S2_{args.img1_product_name[11:19]}_{args.img2_product_name[11:19]}_horizontal_velocity.tif')
+    
+    # Save results
+    output_file = f"output_{args.img1_product_name}_{args.img2_product_name}.nc"
+    ds.to_netcdf(output_file)
+    print(f"Results saved to {output_file}")
 
 if __name__ == "__main__":
     main()
